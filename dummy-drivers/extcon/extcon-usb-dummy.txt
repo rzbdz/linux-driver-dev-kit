@@ -15,7 +15,6 @@ Dts Example: Examples of extcon-usb-dummy node as listed below:
 	dummy_extcon: dummy_extcon@0 {
 		compatible =  "linux,extcon-usb-dummy";
 		default-id;
-		default-vbus;
 		vbus-det;
 		id-det;
 		status = "okay";
