@@ -1,0 +1,36 @@
+Usage of extcon-usb-dummy.c
+
+This is a virtual device used to generate USB cable states from the debugfs.
+
+Dts Required properties:
+- compatible: Should be "linux,extcon-usb-dummy"
+
+Dts Optional properties:
+- default-id: bool, set id to 1 (device) at driver start
+- default-vbus: bool, set vbus to 1 at driver start
+- vbus-det: bool, notify extcon consumer when vbus change
+- id-det: bool, notify extcon consumer when id change
+
+Dts Example: Examples of extcon-usb-dummy node as listed below:
+	dummy_extcon: dummy_extcon@0 {
+		compatible =  "linux,extcon-usb-dummy";
+		default-id;
+		default-vbus;
+		vbus-det;
+		id-det;
+		status = "okay";
+	};
+
+	&your_usb_drd {
+		extcon = <&dummy_extcon>;
+	};
+
+Debugfs control:
+
+set vbus:
+	echo 1 > /sys/kernel/debug/dummy_usb_extcon/vbus
+	echo 0 > /sys/kernel/debug/dummy_usb_extcon/vbus
+
+set id
+	echo 1 > /sys/kernel/debug/dummy_usb_extcon/id
+	echo 0 > /sys/kernel/debug/dummy_usb_extcon/id
