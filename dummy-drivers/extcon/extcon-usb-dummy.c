@@ -5,6 +5,7 @@
  * Author: Pan Junzhong <junzhong.>
  */
 
+#include <linux/pm.h>
 #include <linux/extcon-provider.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
@@ -21,15 +22,20 @@
 
 #define USB_DUMMY_DEBOUNCE_MS	20	/* ms */
 
+#define DEBUGFS_DECLARE_MEMBER(name) \
+	struct dentry *debugfs_##name; \
+	int name##_value;
+
 struct usb_extcon_info {
 	struct device *dev;
 	struct extcon_dev *edev;
 
 	struct dentry *debugfs_dir;
-	struct dentry *debugfs_id;
-	struct dentry *debugfs_vbus;
-	int id_value;
-	int vbus_value;
+	DEBUGFS_DECLARE_MEMBER(id);
+	DEBUGFS_DECLARE_MEMBER(vbus);
+	DEBUGFS_DECLARE_MEMBER(override_on_resume);
+	DEBUGFS_DECLARE_MEMBER(resume_id);
+	DEBUGFS_DECLARE_MEMBER(resume_vbus);
 
 	bool have_vbus_support;
 	bool have_id_support;
@@ -86,69 +92,49 @@ static void usb_extcon_detect_cable(struct work_struct *work)
 	}
 }
 
-static ssize_t id_value_write(struct file *file, const char __user *user_buf,
-							  size_t count, loff_t *ppos)
-{
-	struct usb_extcon_info *info = file->private_data;
-	int val;
-	if (kstrtoint_from_user(user_buf, count, 0, &val) == 0) {
-		info->id_value = val;
-		queue_delayed_work(system_power_efficient_wq, &info->wq_detcable,
-				info->debounce_jiffies);
-		return count;
+#define DEBUGFS_CREATE_RW_ENT(name) \
+	info->debugfs_##name = debugfs_create_file(#name, 0644, info->debugfs_dir, \
+										   info, &name##_value_fops); \
+	if (!info->debugfs_##name) { \
+		ret = -ENODEV; \
+		return ret; \
 	}
-	return -EINVAL;
-}
-
-static ssize_t vbus_value_write(struct file *file, const char __user *user_buf,
-								size_t count, loff_t *ppos)
-{
-	struct usb_extcon_info *info = file->private_data;
-	int val;
-	if (kstrtoint_from_user(user_buf, count, 0, &val) == 0) {
-		info->vbus_value = val;
-		queue_delayed_work(system_power_efficient_wq, &info->wq_detcable,
-				info->debounce_jiffies);
-		return count;
-	}
-	return -EINVAL;
-}
-
-static ssize_t id_value_read(struct file *file, char __user *user_buf,
-							 size_t count, loff_t *ppos)
-{
-	struct usb_extcon_info *info = file->private_data;
-	char buf[20]; // Assuming a reasonable size for the buffer
-	int len;	
-	// Format id_value info a string buffer
-	len = snprintf(buf, sizeof(buf), "%d\n", info->id_value);
-	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
-}
-
-static ssize_t vbus_value_read(struct file *file, char __user *user_buf,
-							   size_t count, loff_t *ppos)
-{
-	struct usb_extcon_info *info = file->private_data;
-	char buf[20]; // Assuming a reasonable size for the buffer
-	int len;
-	// Format id_value info a string buffer
-	len = snprintf(buf, sizeof(buf), "%d\n", info->vbus_value);
-	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
-}
-
-static const struct file_operations id_value_fops = {
-	.open = simple_open,
-	.read = id_value_read,
-	.write = id_value_write,
-	.llseek = no_llseek,
+#define DEBUGFS_DECLARE_RW_VAL(name) \
+static ssize_t name##_value_write(struct file *file, const char __user *user_buf,\
+							  size_t count, loff_t *ppos)\
+{\
+	struct usb_extcon_info *info = file->private_data;\
+	int val;\
+	if (kstrtoint_from_user(user_buf, count, 0, &val) == 0) {\
+		info->name##_value = val;\
+		queue_delayed_work(system_power_efficient_wq, &info->wq_detcable,\
+				info->debounce_jiffies);\
+		return count;\
+	}\
+	return -EINVAL;\
+}\
+static ssize_t name##_value_read(struct file *file, char __user *user_buf, \
+							 size_t count, loff_t *ppos) \
+{\
+	struct usb_extcon_info *info = file->private_data; \
+	char buf[20]; \
+	int len;	\
+	len = snprintf(buf, sizeof(buf), "%d\n", info->name##_value);\
+	return simple_read_from_buffer(user_buf, count, ppos, buf, len);\
+}\
+static const struct file_operations name##_value_fops = { \
+	.open = simple_open, \
+	.read = name##_value_read, \
+	.write = name##_value_write, \
+	.llseek = no_llseek, \
 };
 
-static const struct file_operations vbus_value_fops = {
-	.open = simple_open,
-	.read = vbus_value_read,
-	.write = vbus_value_write,
-	.llseek = no_llseek,
-};
+DEBUGFS_DECLARE_RW_VAL(id);
+DEBUGFS_DECLARE_RW_VAL(vbus);
+DEBUGFS_DECLARE_RW_VAL(override_on_resume);
+DEBUGFS_DECLARE_RW_VAL(resume_id);
+DEBUGFS_DECLARE_RW_VAL(resume_vbus);
+
 
 static int usb_extcon_probe(struct platform_device *pdev)
 {
@@ -200,19 +186,11 @@ static int usb_extcon_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	info->debugfs_id = debugfs_create_file("id", 0644, info->debugfs_dir,
-										   info, &id_value_fops);
-	if (!info->debugfs_id) {
-		ret = -ENODEV;
-		return ret;
-	}
-
-	info->debugfs_vbus = debugfs_create_file("vbus", 0644, info->debugfs_dir,
-											 info, &vbus_value_fops);
-	if (!info->debugfs_vbus) {
-		ret = -ENODEV;
-		return ret;
-	}
+	DEBUGFS_CREATE_RW_ENT(id);
+	DEBUGFS_CREATE_RW_ENT(vbus);
+	DEBUGFS_CREATE_RW_ENT(override_on_resume);
+	DEBUGFS_CREATE_RW_ENT(resume_id);
+	DEBUGFS_CREATE_RW_ENT(resume_vbus);
 
 	queue_delayed_work(system_power_efficient_wq, &info->wq_detcable,
 		info->debounce_jiffies);
@@ -244,12 +222,34 @@ static const struct platform_device_id usb_extcon_platform_ids[] = {
 };
 MODULE_DEVICE_TABLE(platform, usb_extcon_platform_ids);
 
+static int usb_extcon_suspend(struct device*dev)
+{
+	return 0;
+}
+
+static int usb_extcon_resume(struct device*dev)
+{
+	struct usb_extcon_info *info = platform_get_drvdata(to_platform_device(dev));
+	if (info->override_on_resume_value) {
+		info->id_value = info->resume_id_value;
+		info->vbus_value = info->resume_vbus_value;
+		queue_delayed_work(system_power_efficient_wq, &info->wq_detcable,
+				info->debounce_jiffies);
+	}
+	return 0;
+}
+
+static struct dev_pm_ops usb_extcon_pm_ops = {
+	SET_SYSTEM_SLEEP_PM_OPS(usb_extcon_suspend, usb_extcon_resume)
+};
+
 static struct platform_driver usb_extcon_driver = {
 	.probe		= usb_extcon_probe,
 	.remove		= usb_extcon_remove,
 	.driver		= {
 		.name	= "extcon-usb-dummy",
 		.of_match_table = usb_extcon_dt_match,
+		.pm = &usb_extcon_pm_ops,
 	},
 	.id_table = usb_extcon_platform_ids,
 };
