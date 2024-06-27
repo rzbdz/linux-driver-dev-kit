@@ -1,0 +1,3 @@
+[submodule "log-time-calculator"]
+	path = log-time-calculator
+	url = git@github.com:rzbdz/log-time-calculator.git
