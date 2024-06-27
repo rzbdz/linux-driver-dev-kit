@@ -1,0 +1,103 @@
+diff --git a/drivers/usb/core/driver.c b/drivers/usb/core/driver.c
+index 7e7e119c253f..7b4971fc5a83 100644
+--- a/drivers/usb/core/driver.c
++++ b/drivers/usb/core/driver.c
+@@ -1263,6 +1263,8 @@ static int usb_resume_device(struct usb_device *udev, pm_message_t msg)
+ 	struct usb_device_driver	*udriver;
+ 	int				status = 0;
+ 
++	dev_info(&udev->dev, "usb resume device begin %s\n", udev->devpath);
++
+ 	if (udev->state == USB_STATE_NOTATTACHED)
+ 		goto done;
+ 
+@@ -1285,11 +1287,15 @@ static int usb_resume_device(struct usb_device *udev, pm_message_t msg)
+ 	udriver = to_usb_device_driver(udev->dev.driver);
+ 	if (udriver->generic_subclass)
+ 		status = usb_generic_driver_resume(udev, msg);
+-	if (status == 0 && udriver->resume)
++	if (status == 0 && udriver->resume){
++	dev_info(&udev->dev, "usb non generic driver resume begin %s\n", udev->devpath);
+ 		status = udriver->resume(udev, msg);
++	dev_info(&udev->dev, "usb non generic driver resume end %s\n", udev->devpath);
++	}
+ 
+  done:
+ 	dev_vdbg(&udev->dev, "%s: status %d\n", __func__, status);
++	dev_info(&udev->dev, "usb resume device down %s\n", udev->devpath);
+ 	return status;
+ }
+ 
+diff --git a/drivers/usb/core/generic.c b/drivers/usb/core/generic.c
+index 740342a2812a..746c53b02bd3 100644
+--- a/drivers/usb/core/generic.c
++++ b/drivers/usb/core/generic.c
+@@ -293,7 +293,7 @@ int usb_generic_driver_suspend(struct usb_device *udev, pm_message_t msg)
+ int usb_generic_driver_resume(struct usb_device *udev, pm_message_t msg)
+ {
+ 	int rc;
+-
++	dev_info(&udev->dev, "usb generic driver resume begin %s\n", udev->devpath);
+ 	/* Normal USB devices resume/reset through their upstream port.
+ 	 * Root hubs don't have upstream ports to resume or reset,
+ 	 * so we have to start up their downstream HC-to-USB
+@@ -306,6 +306,7 @@ int usb_generic_driver_resume(struct usb_device *udev, pm_message_t msg)
+ 
+ 	if (rc == 0)
+ 		usbfs_notify_resume(udev);
++	dev_info(&udev->dev, "usb generic driver resume end %s\n", udev->devpath);
+ 	return rc;
+ }
+ 
+diff --git a/drivers/usb/core/hub.c b/drivers/usb/core/hub.c
+index 1abe43ddb75f..ca65bb4cbe1f 100644
+--- a/drivers/usb/core/hub.c
++++ b/drivers/usb/core/hub.c
+@@ -3487,9 +3487,13 @@ static int finish_port_resume(struct usb_device *udev)
+ 	u16	devstatus = 0;
+ 
+ 	/* caller owns the udev device lock */
+-	dev_dbg(&udev->dev, "%s\n",
++	dev_info(&udev->dev, "usb finish port resume begin\n");
++
++	dev_info(&udev->dev, "%s\n",
+ 		udev->reset_resume ? "finish reset-resume" : "finish resume");
+ 
++
++
+ 	/* usb ch9 identifies four variants of SUSPENDED, based on what
+ 	 * state the device resumes to.  Linux currently won't see the
+ 	 * first two on the host side; they'd be inside hub_port_init()
+@@ -3561,6 +3565,8 @@ static int finish_port_resume(struct usb_device *udev)
+ 				status);
+ 		status = 0;
+ 	}
++	dev_info(&udev->dev, "usb finish port resume end %s\n", udev->devpath);
++
+ 	return status;
+ }
+ 
+@@ -3651,11 +3657,15 @@ int usb_port_resume(struct usb_device *udev, pm_message_t msg)
+ 	int		status;
+ 	u16		portchange, portstatus;
+ 
++	dev_info(&udev->dev, "usb port resume begin %s\n", udev->devpath);
++
+ 	if (!test_and_set_bit(port1, hub->child_usage_bits)) {
+ 		status = pm_runtime_resume_and_get(&port_dev->dev);
+ 		if (status < 0) {
+ 			dev_dbg(&udev->dev, "can't resume usb port, status %d\n",
+ 					status);
++	dev_info(&udev->dev, "usb port resume end < 0 %s\n", udev->devpath);
++
+ 			return status;
+ 		}
+ 	}
+@@ -3728,6 +3738,7 @@ int usb_port_resume(struct usb_device *udev, pm_message_t msg)
+ 	}
+ 
+ 	usb_unlock_port(port_dev);
++	dev_info(&udev->dev, "usb port resume end normal %s\n", udev->devpath);
+ 
+ 	return status;
+ }
